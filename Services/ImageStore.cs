@@ -13,6 +13,7 @@ public static class ImageStore
     /// <summary>Зберігає повне зображення та мініатюру як PNG на диск. bmp має бути Frozen.</summary>
     public static (string Hash, string ImagePath, string ThumbPath) Save(BitmapSource bmp)
     {
+        bmp = EnsureVisible(bmp);
         byte[] bytes = Encode(bmp);
         string hash = Convert.ToHexString(SHA256.HashData(bytes));
         string img = Path.Combine(AppPaths.Images, hash + ".png");
@@ -32,6 +33,28 @@ public static class ImageStore
             File.WriteAllBytes(thumb, Encode(small));
         }
         return (hash, img, thumb);
+    }
+
+    /// <summary>
+    /// Скріншоти часто приходять як 32-бітний DIB з нульовим альфа-каналом — такі зображення
+    /// стають повністю прозорими. Якщо всі альфа-байти нульові, робимо їх непрозорими.
+    /// </summary>
+    private static BitmapSource EnsureVisible(BitmapSource src)
+    {
+        var conv = new FormatConvertedBitmap(src, PixelFormats.Bgra32, null, 0);
+        int w = conv.PixelWidth, h = conv.PixelHeight, stride = w * 4;
+        var px = new byte[stride * h];
+        conv.CopyPixels(px, stride, 0);
+
+        bool anyAlpha = false;
+        for (int i = 3; i < px.Length; i += 4)
+            if (px[i] != 0) { anyAlpha = true; break; }
+        if (anyAlpha) return src;
+
+        for (int i = 3; i < px.Length; i += 4) px[i] = 255;
+        var fixedBmp = BitmapSource.Create(w, h, src.DpiX, src.DpiY, PixelFormats.Bgra32, null, px, stride);
+        fixedBmp.Freeze();
+        return fixedBmp;
     }
 
     private static byte[] Encode(BitmapSource src)
