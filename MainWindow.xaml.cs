@@ -34,10 +34,12 @@ public partial class MainWindow : Window
 
         SourceInitialized += (_, _) =>
         {
-            var src = (HwndSource)PresentationSource.FromVisual(this)!;
-            src.CompositionTarget.BackgroundColor = Colors.Transparent;
-            int ex = NativeMethods.GetWindowLong(src.Handle, NativeMethods.GWL_EXSTYLE);
-            NativeMethods.SetWindowLong(src.Handle, NativeMethods.GWL_EXSTYLE, ex | NativeMethods.WS_EX_TOOLWINDOW);
+            IntPtr h = new WindowInteropHelper(this).Handle;
+            var src = HwndSource.FromHwnd(h);
+            if (src?.CompositionTarget != null)
+                src.CompositionTarget.BackgroundColor = Colors.Transparent;
+            int ex = NativeMethods.GetWindowLong(h, NativeMethods.GWL_EXSTYLE);
+            NativeMethods.SetWindowLong(h, NativeMethods.GWL_EXSTYLE, ex | NativeMethods.WS_EX_TOOLWINDOW);
         };
         _hwnd = new WindowInteropHelper(this).EnsureHandle();
 
