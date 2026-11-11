@@ -15,6 +15,7 @@
     <TieredPGO>true</TieredPGO>
     <TieredCompilation>true</TieredCompilation>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>

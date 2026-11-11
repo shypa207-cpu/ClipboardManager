@@ -29,7 +29,22 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        try
+        {
+            AppPaths.EnsureCreated();
+            StartCore();
+        }
+        catch (Exception ex)
+        {
+            AppPaths.LogError("Startup", ex);
+            System.Windows.MessageBox.Show(ex.ToString(), "Clipboard Manager — помилка запуску",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown();
+        }
+    }
 
+    private void StartCore()
+    {
         _mutex = new Mutex(true, @"Local\ClipboardManager.SingleInstance", out bool created);
         if (!created) { Shutdown(); return; }
 
@@ -78,6 +93,10 @@ public partial class App : Application
                 "Змініть її у файлі settings.json.", WinForms.ToolTipIcon.Warning);
 
         _main.WarmUp();
+
+        if (hotkeyOk)
+            _tray!.ShowBalloonTip(3000, "Clipboard Manager",
+                "Працює у фоні. Натисніть Ctrl+Shift+V, щоб відкрити історію.", WinForms.ToolTipIcon.Info);
     }
 
     private void OnHotkey()
