@@ -1,0 +1,12 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="FallbackBg" Color="#FF202020"/>
+    <SolidColorBrush x:Key="CardBg" Color="#0DFFFFFF"/>
+    <SolidColorBrush x:Key="CardHover" Color="#18FFFFFF"/>
+    <SolidColorBrush x:Key="CardSelected" Color="#22FFFFFF"/>
+    <SolidColorBrush x:Key="TextPrimary" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#FFC5C5C5"/>
+    <SolidColorBrush x:Key="Stroke" Color="#1AFFFFFF"/>
+    <SolidColorBrush x:Key="Accent" Color="#FF60CDFF"/>
+    <SolidColorBrush x:Key="ThumbBrush" Color="#66FFFFFF"/>
+</ResourceDictionary>
