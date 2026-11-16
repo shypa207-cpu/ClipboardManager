@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ClipVm> _items = new();
     private IntPtr _targetWindow;
     private IntPtr _hwnd;
+    private bool _suppressSearch;
 
     [DllImport("kernel32.dll")]
     private static extern bool SetProcessWorkingSetSize(IntPtr proc, IntPtr min, IntPtr max);
@@ -83,6 +84,9 @@ public partial class MainWindow : Window
     public void ShowAt(int x, int y, IntPtr previousWindow)
     {
         _targetWindow = previousWindow;
+        _suppressSearch = true;
+        SearchBox.Clear();
+        _suppressSearch = false;
         Reload();
 
         // Переносимо вікно на потрібний монітор, щоб WPF підхопив його DPI
@@ -115,6 +119,9 @@ public partial class MainWindow : Window
     {
         if (!IsVisible) return;
         Hide();
+        _suppressSearch = true;
+        SearchBox.Clear();
+        _suppressSearch = false;
         _items.Clear(); // звільняємо візуали та мініатюри, поки вікно сховане
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
         {
@@ -126,11 +133,14 @@ public partial class MainWindow : Window
 
     private void FocusFirst()
     {
-        if (_items.Count == 0) { Focus(); return; }
-        List.SelectedIndex = 0;
-        List.ScrollIntoView(_items[0]);
-        List.UpdateLayout();
-        (List.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem)?.Focus();
+        if (_items.Count > 0)
+        {
+            List.SelectedIndex = 0;
+            List.ScrollIntoView(_items[0]);
+        }
+        // Фокус у полі пошуку: можна одразу друкувати, а стрілки/Enter працюють зі списком
+        SearchBox.Focus();
+        Keyboard.Focus(SearchBox);
     }
 
     // ---------- Дані ----------
@@ -138,9 +148,13 @@ public partial class MainWindow : Window
     {
         long? selected = (List.SelectedItem as ClipVm)?.Id;
         _items.Clear();
-        foreach (var it in _storage.GetAll()) _items.Add(new ClipVm(it));
+        string query = SearchBox.Text.Trim();
+        foreach (var it in _storage.GetAll(query)) _items.Add(new ClipVm(it));
+        EmptyText.Text = query.Length > 0
+            ? "Нічого не знайдено."
+            : "Історія порожня.\nСкопіюйте текст або зображення.";
         EmptyText.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        ClearBtn.IsEnabled = _items.Count > 0;
+        ClearBtn.IsEnabled = query.Length == 0 && _items.Count > 0;
 
         if (selected != null)
             foreach (var vm in _items)
@@ -181,28 +195,64 @@ public partial class MainWindow : Window
         Reload();
     }
 
+    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+    {
+        bool empty = SearchBox.Text.Length == 0;
+        SearchHint.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        SearchClear.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+        if (_suppressSearch) return;
+
+        Reload();
+        if (_items.Count > 0)
+        {
+            List.SelectedIndex = 0;
+            List.ScrollIntoView(_items[0]);
+        }
+    }
+
+    private void OnSearchClear(object sender, RoutedEventArgs e)
+    {
+        SearchBox.Clear();
+        SearchBox.Focus();
+    }
+
+    // Друк з фокусом на списку — перекидаємо в поле пошуку
+    private void OnPreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (SearchBox.IsKeyboardFocusWithin || string.IsNullOrEmpty(e.Text) || char.IsControl(e.Text[0])) return;
+        e.Handled = true;
+        SearchBox.Focus();
+        SearchBox.Text += e.Text;
+        SearchBox.CaretIndex = SearchBox.Text.Length;
+    }
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        bool inSearch = SearchBox.IsKeyboardFocusWithin;
         switch (e.Key)
         {
             case Key.Escape:
                 e.Handled = true;
-                HideWindow();
+                if (SearchBox.Text.Length > 0) SearchBox.Clear();
+                else HideWindow();
                 break;
             case Key.Enter when List.SelectedItem is ClipVm vm:
                 e.Handled = true;
                 _ = PasteAsync(vm);
                 break;
-            case Key.Delete when List.SelectedItem is ClipVm vm:
+            case Key.Delete when !inSearch && List.SelectedItem is ClipVm vm:
                 e.Handled = true;
                 int idx = List.SelectedIndex;
                 _storage.Delete(vm.Id);
                 Reload();
                 if (_items.Count > 0) List.SelectedIndex = Math.Min(idx, _items.Count - 1);
                 break;
-            case Key.Down or Key.Up when !List.IsKeyboardFocusWithin && _items.Count > 0:
+            case Key.Down or Key.Up when inSearch && _items.Count > 0:
                 e.Handled = true;
-                FocusFirst();
+                int next = List.SelectedIndex + (e.Key == Key.Down ? 1 : -1);
+                next = Math.Max(0, Math.Min(next, _items.Count - 1));
+                List.SelectedIndex = next;
+                List.ScrollIntoView(_items[next]);
                 break;
         }
     }

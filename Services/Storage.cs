@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using ClipboardManager.Models;
 using Microsoft.Data.Sqlite;
 
@@ -45,20 +46,44 @@ public sealed class Storage
         cmd.ExecuteNonQuery();
     }
 
-    public List<ClipItem> GetAll()
+    private enum MatchMode { None, Substring, Fuzzy }
+
+    /// <summary>Уся історія (закріплені зверху) або результати пошуку за запитом.</summary>
+    public List<ClipItem> GetAll(string? query = null)
     {
-        var list = new List<ClipItem>();
+        string q = (query ?? "").Trim();
+        if (q.Length == 0) return Query(Array.Empty<string>(), MatchMode.None);
+
+        var tokens = SearchHelper.Tokenize(q);
+        var result = Query(tokens, MatchMode.Substring);
+
+        if (result.Count == 0)
+        {
+            // Можливо, запит набрано в іншій розкладці клавіатури
+            string swapped = SearchHelper.SwapLayout(q);
+            if (!string.Equals(swapped, q, StringComparison.OrdinalIgnoreCase))
+                result = Query(SearchHelper.Tokenize(swapped), MatchMode.Substring);
+        }
+        if (result.Count == 0)
+            result = Query(tokens, MatchMode.Fuzzy);
+        return result;
+    }
+
+    private List<ClipItem> Query(string[] tokens, MatchMode mode)
+    {
+        var rows = new List<(ClipItem Item, double Score)>();
         lock (_lock)
         {
             using var c = Open();
             using var cmd = c.CreateCommand();
-            cmd.CommandText = @"SELECT id, kind, substr(text,1,$n), image_path, thumb_path, hash, pinned, created
+            string textExpr = mode == MatchMode.None ? "substr(text,1,$n)" : "text";
+            cmd.CommandText = $@"SELECT id, kind, {textExpr}, image_path, thumb_path, hash, pinned, created
                                 FROM items ORDER BY pinned DESC, created DESC;";
-            cmd.Parameters.AddWithValue("$n", PreviewChars);
+            if (mode == MatchMode.None) cmd.Parameters.AddWithValue("$n", PreviewChars);
             using var r = cmd.ExecuteReader();
             while (r.Read())
             {
-                list.Add(new ClipItem
+                var item = new ClipItem
                 {
                     Id = r.GetInt64(0),
                     Kind = (ClipKind)r.GetInt32(1),
@@ -68,10 +93,36 @@ public sealed class Storage
                     Hash = r.GetString(5),
                     IsPinned = r.GetInt32(6) != 0,
                     CreatedUtc = DateTime.FromBinary(r.GetInt64(7))
-                });
+                };
+
+                if (mode == MatchMode.None) { rows.Add((item, 0)); continue; }
+
+                // Під час пошуку зображення пропускаємо (в них немає тексту)
+                if (item.Kind != ClipKind.Text || item.Text == null) continue;
+
+                double score = mode == MatchMode.Substring
+                    ? SearchHelper.ScoreSubstring(item.Text, tokens, out int first)
+                    : SearchHelper.ScoreFuzzy(item.Text, tokens, out first);
+                if (score < 0) continue;
+
+                item.Text = MakeSnippet(item.Text, first);
+                rows.Add((item, score));
             }
         }
-        return list;
+
+        if (mode != MatchMode.None)
+            rows = rows.OrderByDescending(x => x.Score).ToList(); // стабільне: при рівності зберігається порядок «закріплені, нові»
+        return rows.Select(x => x.Item).ToList();
+    }
+
+    /// <summary>Фрагмент тексту навколо першого збігу, щоб було видно, чому елемент знайдено.</summary>
+    private static string MakeSnippet(string text, int matchIndex)
+    {
+        if (matchIndex <= 100)
+            return text.Length > PreviewChars ? text.Substring(0, PreviewChars) : text;
+        int start = matchIndex - 60;
+        int len = Math.Min(PreviewChars, text.Length - start);
+        return "…" + text.Substring(start, len);
     }
 
     public string? GetFullText(long id)
